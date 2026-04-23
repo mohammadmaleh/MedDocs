@@ -33,7 +33,7 @@ async def upload_document(
     db.commit()
     db.refresh(document)
 
-    embed_and_store(doc_id=document.id, chunks=chunks)
+    embed_and_store(doc_id=document.id, chunks=chunks, user_id=current_user.id)
 
     document.status = "done"
     db.commit()

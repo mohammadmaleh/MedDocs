@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel, ConfigDict, EmailStr
 
 
@@ -20,3 +22,23 @@ class UserResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     email: str
     id: int
+
+
+class ChatSessionResponse(BaseModel):
+    id: int
+    created_at: datetime
+    user_id: int
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ChatMessageCreate(BaseModel):
+    content: str
+
+
+class ChatMessageResponse(BaseModel):
+    session_id: int
+    role: str
+    content: str
+    created_at: datetime
+    id: int
+    model_config = ConfigDict(from_attributes=True)
