@@ -37,7 +37,7 @@ def chunk_text(text: str) -> list[str]:
     return chunks
 
 
-def embed_and_store(doc_id: int, chunks: list[str]) -> None:
+def embed_and_store(doc_id: int, chunks: list[str], user_id: int) -> None:
     response = openai_client.embeddings.create(model=EMBEDDING_MODEL, input=chunks)
     vectors = []
     for i, embedding_obj in enumerate(response.data):
@@ -45,7 +45,12 @@ def embed_and_store(doc_id: int, chunks: list[str]) -> None:
             {
                 "id": f"{doc_id}-{i}-{uuid.uuid4().hex[:8]}",
                 "values": embedding_obj.embedding,
-                "metadata": {"doc_id": doc_id, "chunk_index": i, "text": chunks[i]},
+                "metadata": {
+                    "doc_id": doc_id,
+                    "chunk_index": i,
+                    "text": chunks[i],
+                    "user_id": user_id,
+                },
             }
         )
     pinecone_index.upsert(vectors=vectors)
