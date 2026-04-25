@@ -10,6 +10,7 @@ from app.services.document_processor import (
     embed_and_store,
     extract_text_from_pdf,
 )
+from app.services.keyword_service import check_keyword
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -21,12 +22,20 @@ async def upload_document(
     current_user: User = Depends(get_current_user),
 ):
     file_bytes = await file.read()
-    text = extract_text_from_pdf(file_bytes=file_bytes)
+    text_list = extract_text_from_pdf(file_bytes=file_bytes)
+
+    text = " ".join([item["text"] for item in text_list])
+
+    all_flags = []
+    for item in text_list:
+      all_flags += check_keyword(text=item["text"], page_number=item["page_number"])
+
     chunks = chunk_text(text=text)
     document = Document(
         filename=file.filename,
         original_text=text,
         user_id=current_user.id,
+        flags=all_flags,
         status="processing",
     )
 
