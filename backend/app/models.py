@@ -62,4 +62,5 @@ class ChatMessage(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(timezone.utc)
     )
+    sources: Mapped[list | None] = mapped_column(JSON, nullable=True)
     session = relationship("ChatSession", back_populates="messages")

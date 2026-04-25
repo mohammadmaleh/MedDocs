@@ -1,4 +1,7 @@
+import json
+
 from groq import Groq
+from groq.types.chat import ChatCompletionMessageParam
 from openai import OpenAI
 from pinecone import Pinecone
 from sqlalchemy.orm import Session
@@ -31,10 +34,16 @@ async def handle_message(
         include_metadata=True,
         filter={"user_id": user_id},
     )
-    chunks = [match["metadata"]["text"] for match in search_results["matches"]]
+    chunks = [
+        {
+            "text": match["metadata"]["text"],
+            "page_number": match["metadata"].get("page_number"),
+        }
+        for match in search_results["matches"]  # type: ignore
+    ]
 
-    context = "\n\n".join(chunks)
-    messages = [
+    context = "\n\n".join([chunk["text"] for chunk in chunks])
+    messages: list[ChatCompletionMessageParam] = [
         {
             "role": "system",
             "content": (
@@ -71,9 +80,10 @@ async def handle_message(
         if delta:
             full_reply += delta
             yield delta
-
+    sources_event = json.dumps({"type": "sources", "sources": chunks})
+    yield f"data: {sources_event}\n\n"
     assistant_message = ChatMessage(
-        role="assistant", content=full_reply, session_id=session_id
+        role="assistant", content=full_reply, session_id=session_id, sources=chunks
     )
     db.add(assistant_message)
     db.commit()
