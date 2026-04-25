@@ -50,6 +50,7 @@ def embed_and_store(doc_id: int, chunks: list[str], user_id: int) -> None:
                     "chunk_index": i,
                     "text": chunks[i],
                     "user_id": user_id,
+                    "page_number": (i * (CHUNK_SIZE - CHUNK_OVERLAP)) // 1000 + 1,
                 },
             }
         )

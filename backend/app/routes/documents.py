@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.auth import get_current_user
 from app.database import get_db
 from app.models import Document, User
+from app.schemas import DocumentResponse
 from app.services.document_processor import (
     chunk_text,
     embed_and_store,
@@ -41,7 +42,7 @@ async def upload_document(
     return {"id": document.id, "filename": document.filename, "chunks": len(chunks)}
 
 
-@router.get("/", status_code=200)
+@router.get("/", status_code=200, response_model=list[DocumentResponse])
 async def get_documents(
     current_user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ):
@@ -51,7 +52,7 @@ async def get_documents(
     return list(document)
 
 
-@router.get("/{id}", status_code=200)
+@router.get("/{id}", status_code=200, response_model=DocumentResponse)
 async def get_document_by_id(
     id: int,
     current_user: User = Depends(get_current_user),
