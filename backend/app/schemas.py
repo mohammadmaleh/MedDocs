@@ -33,6 +33,7 @@ class DocumentResponse(BaseModel):
     created_at: datetime
 
 
+
 class ChatSessionResponse(BaseModel):
     id: int
     created_at: datetime
