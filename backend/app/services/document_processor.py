@@ -17,15 +17,12 @@ pinecone_client = Pinecone(api_key=PINECONE_API_KEY)
 pinecone_index = pinecone_client.Index("meddocs")
 
 
-def extract_text_from_pdf(file_bytes: bytes) -> str:
-    doc = fitz.open(stream=file_bytes, filetype="pdf")
-    text = ""
-
-    for page in doc:
-        text += str(page.get_text("text"))
+def extract_text_from_pdf(file_bytes: bytes) -> list[dict]:
+    doc = fitz.open(stream=file_bytes, filetype="pdf" )
+    text_and_pages_number = [{"text": page.get_text("text"), "page_number": index + 1} for index, page in enumerate(doc) ] # type: ignore
     doc.close()
 
-    return text.strip()
+    return text_and_pages_number
 
 
 def chunk_text(text: str) -> list[str]:

@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, Nullable, String, Text, null
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -13,7 +13,7 @@ class Document(Base):
     filename: Mapped[str] = mapped_column(String, nullable=False)
     original_text: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String, default="pending")
-    flagged_keywords: Mapped[list] = mapped_column(JSON, default=list)
+    flags: Mapped[list] = mapped_column(JSON, default=list, nullable=True)
     user_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("users.id"), nullable=False
     )
