@@ -1,10 +1,16 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.auth import create_access_token, hash_password, verify_password
+from app.auth import (
+    create_access_token,
+    get_current_user,
+    hash_password,
+    verify_password,
+)
 from app.crud import create_user, get_user_by_email
 from app.database import get_db
-from app.schemas import LoginRequest, RegisterRequest
+from app.models import User
+from app.schemas import LoginRequest, RegisterRequest, UserResponse
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -32,3 +38,8 @@ async def login(body: LoginRequest, db: Session = Depends(get_db)):
         raise HTTPException(401, "Wrong Credentials")
     token = create_access_token(user.id)
     return {"access_token": token, "token_type": "Bearer"}
+
+
+@router.get("/me", status_code=200, response_model=UserResponse)
+async def me(current_user: User = Depends(get_current_user)):
+    return current_user

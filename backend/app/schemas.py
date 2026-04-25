@@ -24,6 +24,15 @@ class UserResponse(BaseModel):
     id: int
 
 
+class DocumentResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    filename: str
+    status: str
+    user_id: int
+    created_at: datetime
+
+
 class ChatSessionResponse(BaseModel):
     id: int
     created_at: datetime
