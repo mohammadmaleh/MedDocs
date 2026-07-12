@@ -40,28 +40,29 @@ erDiagram
     organizations {
         uuid id PK
         string name
-        timestamp created_at
+        timestamptz created_at
     }
     users {
         uuid id PK
         string email UK
         string hashed_password
         string full_name
-        timestamp created_at
+        timestamptz created_at
     }
     memberships {
         uuid id PK
         uuid user_id FK
         uuid organization_id FK
         string role "org_admin | physician | assistant | auditor"
-        timestamp created_at
+        timestamptz created_at
     }
     patients {
         uuid id PK
         uuid organization_id FK
+        string patient_ref "external id: insurance no. / MRN — unique per org"
         string full_name
         date date_of_birth
-        timestamp created_at
+        timestamptz created_at
     }
     documents {
         uuid id PK
@@ -74,7 +75,7 @@ erDiagram
         string urgency
         string status "received | triaged | assigned | in_review | approved | rejected | archived"
         text summary
-        timestamp created_at
+        timestamptz created_at
     }
     document_events {
         uuid id PK
@@ -84,7 +85,7 @@ erDiagram
         string from_status
         string to_status
         text note
-        timestamp created_at
+        timestamptz created_at
     }
     comments {
         uuid id PK
@@ -92,7 +93,7 @@ erDiagram
         uuid document_id FK
         uuid author_user_id FK
         text body
-        timestamp created_at
+        timestamptz created_at
     }
     lab_values {
         uuid id PK
@@ -103,8 +104,8 @@ erDiagram
         float value
         string unit
         string reference_range
-        timestamp measured_at
-        timestamp created_at
+        timestamptz measured_at
+        timestamptz created_at
     }
     notifications {
         uuid id PK
@@ -112,15 +113,15 @@ erDiagram
         uuid recipient_user_id FK
         string type
         json payload
-        timestamp read_at "nullable — null = unread"
-        timestamp created_at
+        timestamptz read_at "nullable — null = unread"
+        timestamptz created_at
     }
     chat_sessions {
         uuid id PK
         uuid organization_id FK
         uuid user_id FK
         uuid document_id FK "the doc being questioned"
-        timestamp created_at
+        timestamptz created_at
     }
     chat_messages {
         uuid id PK
@@ -129,7 +130,7 @@ erDiagram
         string role "user | assistant"
         text content
         json sources "citation chunks + page numbers"
-        timestamp created_at
+        timestamptz created_at
     }
     audit_log {
         uuid id PK
@@ -139,7 +140,7 @@ erDiagram
         string entity_type
         uuid entity_id
         json metadata
-        timestamp created_at
+        timestamptz created_at
     }
 ```
 
@@ -167,6 +168,41 @@ and an auditor at Clinic B — impossible with `role` on `users`.
 - `document_events (document_id, created_at)` — a document's timeline.
 - `lab_values (patient_id, name, measured_at)` — a patient's trend for one lab value.
 - `notifications (recipient_user_id, read_at)` — a user's unread notifications.
+
+## Constraints & types (what the diagram can't draw)
+
+An ERD shows *shape* (tables, columns, PK/FK, cardinality). The rules below are just as much part of
+the schema — they're enforced in the `CREATE TABLE` / migration in M2, not in the picture.
+
+**Uniqueness**
+- `memberships` — **`UNIQUE (user_id, organization_id)`**: one user has exactly one role per org.
+  Without it, a second row could make someone a physician *and* an auditor in the same org — breaking
+  separation of duties and making "what's this user's role here?" ambiguous.
+- `patients` — **`UNIQUE (organization_id, patient_ref)`**: the patient identifier is unique within an org.
+- `users` — **`UNIQUE (email)`** (global login).
+
+**Enumerations — `CHECK` constraint or Postgres `ENUM`, never a free string**
+- `memberships.role` → `org_admin | physician | assistant | auditor`
+- `documents.status` → `received | triaged | assigned | in_review | approved | rejected | archived`
+- `documents.doc_type` → `referral | lab | letter | discharge`
+- `documents.urgency` → `routine | urgent | critical`
+
+A free string lets a typo (`"physican"`) become a silent bug; a constraint refuses it.
+
+**Types & defaults**
+- **All timestamps are `timestamptz`** (timezone-aware, stored UTC), default `now()` — never naive `timestamp`.
+- PKs are `uuid`, default `gen_random_uuid()`.
+- `organization_id` is `NOT NULL` on every table that has it — tenancy is never optional.
+
+**Integrity notes**
+- `audit_log` and `document_events` are **append-only** — insert only, no update/delete. That's what
+  makes the trail trustworthy.
+- `audit_log.entity_id` is **polymorphic** (`entity_type` + `entity_id`) → deliberately **no foreign key**,
+  since it can reference documents, patients, or users.
+
+**Why this lives in the database, not just app code:** a constraint the database enforces can *never* be
+violated — app checks get forgotten, bypassed by another code path, or lost in a race. Put invariants in
+the schema; make correctness structural.
 
 ## Deferred (later milestones)
 
