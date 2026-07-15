@@ -126,7 +126,7 @@ July — the same "record it when it happens, read it later" pattern as keyword 
   critical-value / keyword flagging → per-page embeddings.
 - **Patients** — first-class entity (`organization → patient → documents`); **fake data only**.
 - **Review workflow** — guarded state machine (`received → triaged → assigned → in_review →
-  approved | rejected → archived`), second opinion, reassignment.
+  approved | rejected → archived`), second opinion (`awaiting_second_opinion`), reassignment.
 - **Work queues** — shared pool (claim the next one) + optional direct assignment.
 - **Document workspace** — PDF viewer, citation-grounded Q&A, notes/annotations, lab-value trends.
 - **Audit & compliance** — append-only audit log written automatically at access time; read-only

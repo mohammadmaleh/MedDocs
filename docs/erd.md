@@ -73,7 +73,7 @@ erDiagram
         string storage_key "PDF lives in object storage, not the DB"
         string doc_type "referral | lab | letter | discharge"
         string urgency
-        string status "received | triaged | assigned | in_review | approved | rejected | archived"
+        string status "received | triaged | assigned | in_review | awaiting_second_opinion | approved | rejected | archived"
         text summary
         timestamptz created_at
     }
@@ -183,7 +183,8 @@ the schema — they're enforced in the `CREATE TABLE` / migration in M2, not in 
 
 **Enumerations — `CHECK` constraint or Postgres `ENUM`, never a free string**
 - `memberships.role` → `org_admin | physician | assistant | auditor`
-- `documents.status` → `received | triaged | assigned | in_review | approved | rejected | archived`
+- `documents.status` → `received | triaged | assigned | in_review | awaiting_second_opinion | approved | rejected | archived`
+  — the lifecycle and the guard on each transition live in [`workflow.md`](./workflow.md).
 - `documents.doc_type` → `referral | lab | letter | discharge`
 - `documents.urgency` → `routine | urgent | critical`
 
