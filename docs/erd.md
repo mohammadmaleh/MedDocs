@@ -67,13 +67,14 @@ erDiagram
     documents {
         uuid id PK
         uuid organization_id FK
-        uuid patient_id FK
+        uuid patient_id FK "nullable — linked at triage; a new patient may be unknown at upload"
         uuid assigned_user_id FK "nullable — null while in the shared pool"
         string filename
         string storage_key "PDF lives in object storage, not the DB"
         string doc_type "referral | lab | letter | discharge"
         string urgency
-        string status "received | triaged | assigned | in_review | approved | rejected | archived"
+        string status "review axis: received | triaged | assigned | in_review | awaiting_second_opinion | approved | rejected | archived"
+        string pipeline_status "AI axis: pending | processing | done | failed — orthogonal to status"
         text summary
         timestamptz created_at
     }
@@ -183,7 +184,11 @@ the schema — they're enforced in the `CREATE TABLE` / migration in M2, not in 
 
 **Enumerations — `CHECK` constraint or Postgres `ENUM`, never a free string**
 - `memberships.role` → `org_admin | physician | assistant | auditor`
-- `documents.status` → `received | triaged | assigned | in_review | approved | rejected | archived`
+- `documents.status` → `received | triaged | assigned | in_review | awaiting_second_opinion | approved | rejected | archived`
+  — the **review** lifecycle; the guard on each transition lives in [`workflow.md`](./workflow.md).
+- `documents.pipeline_status` → `pending | processing | done | failed`
+  — the **AI-pipeline** axis, **orthogonal** to `status` (see [`workflow.md`](./workflow.md) §3.1). A doc
+  cannot leave `received` until this is `done` (or `failed` + manual triage).
 - `documents.doc_type` → `referral | lab | letter | discharge`
 - `documents.urgency` → `routine | urgent | critical`
 
