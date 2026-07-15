@@ -28,9 +28,9 @@ async def upload_document(
 
     all_flags = []
     for item in text_list:
-      all_flags += check_keyword(text=item["text"], page_number=item["page_number"])
+        all_flags += check_keyword(text=item["text"], page_number=item["page_number"])
 
-    chunks = chunk_text(text=text)
+    chunks = chunk_text(text_list=text_list)
     document = Document(
         filename=file.filename,
         original_text=text,
