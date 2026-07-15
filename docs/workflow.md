@@ -70,6 +70,40 @@ assigned three days ago that nobody has *opened* is the escalation case.
 > lifecycle *and*, independently, may be soft-deleted. Modelling delete as a status would tangle two
 > unrelated axes.
 
+### 3.1 Two axes: the *review* status and the *pipeline* status
+
+`documents.status` (the machine in §5) is the **review** lifecycle — a *human* workflow. The **AI pipeline**
+(classify → summarize → flag → embed) is *async work that can fail*, so it lives on a **separate axis** — a
+second column, `pipeline_status` — never mixed into the review states.
+
+```mermaid
+stateDiagram-v2
+    [*] --> pending
+    pending --> processing : worker picks it up
+    processing --> done : all steps succeeded
+    processing --> failed : a step errored (after retries)
+    failed --> processing : retry (auto or manual)
+```
+
+**Why two axes, not one:** jamming `processing`/`failed` into `documents.status` would make a doc that
+merely failed to *embed* look like a *review* state, and every workflow query would have to special-case
+pipeline noise. Keep them orthogonal — a document has a review status **and**, independently, a pipeline
+status.
+
+This also **dissolves the "hidden triage state" problem.** There is no ambiguous `received`; the two
+columns *together* are unambiguous:
+
+| `status` | `pipeline_status` | Means |
+|---|---|---|
+| `received` | `pending` / `processing` | AI still working — don't touch |
+| `received` | `done` | **AI finished; a human must triage** (low type-confidence, or urgency > `routine`) — *the human-triage queue* |
+| `received` | `failed` | AI couldn't process it — needs **manual** triage |
+| `triaged` … | `done` | the normal flow |
+
+So *"waiting for a human to confirm urgency"* is a **visible, queryable condition**, not a flag hidden
+inside `received`. **You cannot reach `triaged` until the pipeline is resolved** (`done`, or `failed` +
+a human steps in) — that dependency is what gates the whole downstream machine.
+
 ---
 
 ## 4. The five design decisions (and why)
@@ -89,6 +123,9 @@ The AI pipeline classifies two things on upload: `doc_type` **and** `urgency`.
 
 Reaching `triaged` asserts *"type and urgency are settled and trusted."* Human attention is **rationed by
 risk**: cheap to be wrong about type, expensive to be wrong about urgency.
+
+The docs that *need* a human — low type-confidence **or** urgency above `routine` — are exactly the
+`(status=received, pipeline_status=done)` rows from §3.1: a **visible work queue**, not a hidden flag.
 
 ### 4.2 `start_review`, `approve`, `reject` are locked to the assignee
 
@@ -150,6 +187,7 @@ stateDiagram-v2
     received --> triaged : triage
     triaged --> assigned : assign
     assigned --> assigned : reassign
+    assigned --> triaged : unassign
     assigned --> in_review : start_review
 
     in_review --> awaiting_second_opinion : request_second_opinion
@@ -172,23 +210,25 @@ event it writes. **Anything not in this table is illegal → `409`.**
 
 | # | From → To | Trigger (permission) | Actor | Guard (must be true *now*) |
 |---|---|---|---|---|
-| 1 | `received → triaged` | `document:triage` | `ai_classifier` service acct (auto) **or** assistant/physician (confirm) | type confidence ≥ threshold **and** urgency ≤ `routine` **or** a human has confirmed urgency |
-| 2 | `triaged → assigned` | `document:assign` | org_admin / physician / assistant | `status = 'triaged'` |
-| 3 | `assigned → assigned` | `document:assign` | org_admin / physician / assistant | `status = 'assigned'`; sets a **new** `assigned_user_id` |
-| 4 | `assigned → in_review` | `document:start_review` | physician | `status = 'assigned'` **and** `assigned_user_id = caller` |
-| 5 | `in_review → awaiting_second_opinion` | `document:assign`¹ | physician (the assignee) | `status = 'in_review'` **and** `assigned_user_id = caller` |
-| 6 | `awaiting_second_opinion → in_review` | (consult resolved) | consultant comments / assignee resumes | `status = 'awaiting_second_opinion'` |
-| 7 | `in_review → assigned` | `document:assign` | org_admin / physician | `status = 'in_review'`; sets a **new** `assigned_user_id` (reassignment) |
-| 8 | `in_review → approved` | `document:approve` | physician | `status = 'in_review'` **and** `assigned_user_id = caller` |
-| 9 | `in_review → rejected` | `document:reject` | physician | `status = 'in_review'` **and** `assigned_user_id = caller` **and** `reason` provided |
-| 10 | `approved → archived` | `document:archive` | org_admin / physician / assistant | `status = 'approved'` |
-| 11 | `rejected → archived` | `document:archive` | org_admin / physician / assistant | `status = 'rejected'` |
+| 1 | `received → triaged` | `document:triage` | `ai_classifier` service acct (auto) **or** assistant/physician (confirm) | `pipeline_status = 'done'`; **auto** if type-confidence ≥ threshold **and** urgency ≤ `routine`, **else** a human confirms |
+| 2 | `triaged → assigned` | `document:assign` | org_admin / physician / assistant | `status = 'triaged'`; sets `assigned_user_id` |
+| 3 | `assigned → assigned` | `document:assign` | org_admin / physician / assistant | `status = 'assigned'`; sets a **new** `assigned_user_id` (reassign) |
+| 4 | `assigned → triaged` | `document:assign` | org_admin / physician / assistant | `status = 'assigned'`; **clears** `assigned_user_id` → back to the pool (unassign) |
+| 5 | `assigned → in_review` | `document:start_review` | physician | `status = 'assigned'` **and** `assigned_user_id = caller` |
+| 6 | `in_review → awaiting_second_opinion` | `document:assign`¹ | physician (the assignee) | `status = 'in_review'` **and** `assigned_user_id = caller` |
+| 7 | `awaiting_second_opinion → in_review` | (consult resolved) | consultant comments / assignee resumes | `status = 'awaiting_second_opinion'` |
+| 8 | `in_review → assigned` | `document:assign` | org_admin / physician | `status = 'in_review'`; sets a **new** `assigned_user_id` (reassignment) |
+| 9 | `in_review → approved` | `document:approve` | physician | `status = 'in_review'` **and** `assigned_user_id = caller` |
+| 10 | `in_review → rejected` | `document:reject` | physician | `status = 'in_review'` **and** `assigned_user_id = caller` **and** `reason` provided |
+| 11 | `approved → archived` | `document:archive` | org_admin / physician / assistant | `status = 'approved'` |
+| 12 | `rejected → archived` | `document:archive` | org_admin / physician / assistant | `status = 'rejected'` |
 
 ¹ Second-opinion is a `document:assign` variant (routing a consult), not a new permission — see §9.
 
-**Reading the guards:** the recurring `assigned_user_id = caller` on rows 4, 5, 8, 9 is the
-accountability invariant from §4.2 — only the assignee performs the clinical acts. Rows 3 and 7
-(`reassign`) are the **only** way `assigned_user_id` changes, and they are administrative (§4.3).
+**Reading the guards:** the recurring `assigned_user_id = caller` on rows 5, 6, 9, 10 is the
+accountability invariant from §4.2 — only the assignee performs the clinical acts. Rows 2, 3, 4, 8
+(`assign` / `reassign` / `unassign`) are the **only** ways `assigned_user_id` changes, and they are all
+administrative routing (§4.3).
 
 ---
 
@@ -223,16 +263,26 @@ model:
 
 ---
 
-## 7. SLA timers
+## 7. SLA timers — there are **two** clocks
 
-- **The review SLA starts when a document enters `assigned`.** It measures the thing the org can act on:
-  how long until a physician actually starts (and finishes) the review. A doc sitting `assigned` and
-  unopened is the primary escalation case.
-- **`awaiting_second_opinion` pauses the review SLA** and starts a **separate consult timer** — so
-  escalation chases **Dr. B** (the blocker), not Dr. A. When it returns to `in_review`, the review SLA
-  resumes.
-- **Urgency scales the *duration*, not the start:** a `critical` doc gets a much shorter SLA than a
-  `routine` one. (Concrete thresholds are an M3/M4 concern; not fixed here.)
+A single "review SLA starting at `assigned`" leaves a hole: an urgent doc sitting **`triaged` but
+unassigned** in the pool would have *no clock at all* — and burying urgent findings is the exact problem
+this product exists to solve. So there are two independent timers:
+
+| Clock | Starts on entering | Measures | Escalates to |
+|---|---|---|---|
+| **Assignment (pool) SLA** | `triaged` | how long until *someone is made responsible* | `org_admin` — routing is administrative |
+| **Review SLA** | `assigned` | how long until the assignee *acts* (approve/reject) | the reviewer, then their lead |
+
+- **Urgency scales the *duration* of both** — a `critical` doc gets a short fuse on each clock; `routine`
+  a long one. (Concrete thresholds: M3/M4.)
+- **Unassigning (`assigned → triaged`) drops the doc back onto the pool clock**; assigning restarts the
+  review clock. Repeated reassignment resetting the clock is a known, accepted gaming risk (§9).
+- **`awaiting_second_opinion` pauses the review SLA** and runs a **separate consult timer**, so escalation
+  chases **Dr. B** (the blocker), not Dr. A. Back to `in_review` → the review SLA resumes.
+- **The `received` phase has no SLA — it's bounded by the pipeline** (§3.1). It should be seconds of
+  automated work; a doc stuck in `received` with `pipeline_status = 'failed'` is surfaced by the pipeline
+  axis, which is what raises the manual-triage flag.
 - The timers are read off `status` + the `document_events` timeline — another reason both must be honest.
 
 ---
@@ -258,7 +308,7 @@ gate 4 guard     → FAIL: approve requires status='in_review', found 'received'
 ```
 
 Other illegal examples, all `409`: approving a `triaged` doc, archiving an `in_review` doc, starting
-review on a doc assigned to **someone else** (guard row 4 fails on `assigned_user_id`), re-approving an
+review on a doc assigned to **someone else** (guard row 5 fails on `assigned_user_id`), re-approving an
 already-`approved` doc, any transition *out of* `archived` (terminal).
 
 ---
@@ -270,5 +320,6 @@ already-`approved` doc, any transition *out of* `archived` (terminal).
 | **Second-opinion as its own permission** | ⚠️ modelled as a `document:assign` variant for now | It routes a consult without changing the assignee. Promote to a distinct `document:request_opinion` if the consult flow grows its own rules. (`permissions.md` §9 flagged this.) |
 | **`document:edit` after `approved`** | likely a **guard**, not a permission | Editing an approved document should be illegal by *state*, not merely by role. Confirm the guard in M3. |
 | **Concrete SLA thresholds per urgency** | not fixed here | Needs real operational input; belongs with the escalation worker (M3/M4). |
+| **Reassignment resets the review SLA** | ⚠️ accepted risk | Repeated `reassign`/`unassign` could reset the clock indefinitely. Acceptable for M1; if abused, cap resets or track cumulative time in `document_events`. |
 | **`replaces_document_id` link on a redo** | optional, not required for the machine | Connects a re-submission to the rejected original for the audit story; the two lifecycles stay separate regardless. |
 | **Row-locking for concurrent transitions** | `SELECT … FOR UPDATE` on the document row | Two reviewers must not race the same transition; the M3 implementation locks the row before checking the guard. |
